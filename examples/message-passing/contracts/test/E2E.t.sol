@@ -54,8 +54,8 @@ contract E2ETest is Test {
             verifier,
             CROSS_DOMAIN_MESSENGER_IMAGE_ID,
             "https://contains-message.com",
-            l1Block,
-            address(l1CrossDomainMessenger)
+            address(l1CrossDomainMessenger),
+            l1Block
         );
         counter = new Counter(l2CrossDomainMessenger, address(sender));
     }
@@ -76,7 +76,7 @@ contract E2ETest is Test {
 
         vm.roll(1);
         uint256 blockNumber = l2CrossDomainMessenger.bookmarkL1Block();
-        bytes32 blockHash = l2CrossDomainMessenger.hash();
+        bytes32 blockHash = l1Block.hash();
 
         // Mock the Journal
         Steel.Commitment memory commitment = Steel.Commitment({blockNumber: blockNumber, blockHash: blockHash});

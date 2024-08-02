@@ -14,22 +14,31 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pragma solidity >0.5.0 <0.9.0;
+pragma solidity ^0.8.13;
 
 import {IBookmark} from "./IBookmark.sol";
+import {IL1Block} from "./IL1Block.sol";
 
-interface IL2CrossDomainMessenger is IBookmark {
-    error VerificationFailed();
+contract Bookmark is IBookmark {
+    IL1Block private immutable L1_BLOCK;
 
-    /// A new message has been bridged.
-    event MessageRelayed(bytes32 digest);
+    mapping(uint64 blockNumber => bytes32 blockHash) internal blocks;
 
-    /// relay the message from L1.
-    function relayMessage(bytes calldata journal, bytes calldata seal) external;
+    constructor(IL1Block l1Block) {
+        L1_BLOCK = l1Block;
+    }
 
-    /// returns the cross domain messenger address, i.e., the sender of the message.
-    function xDomainMessageSender() external view returns (address);
+    function bookmarkL1Block() external returns (uint64) {
+        uint64 blockNumber = L1_BLOCK.number();
+        bytes32 blockHash = L1_BLOCK.hash();
 
-    /// Returns the imageId and its url.
-    function imageInfo() external view returns (bytes32, string memory);
+        blocks[blockNumber] = blockHash;
+        emit BookmarkedL1Block(blockNumber, blockHash);
+
+        return blockNumber;
+    }
+
+    function getBookmark(uint64 blockNumber) external view returns (bytes32) {
+        return blocks[blockNumber];
+    }
 }

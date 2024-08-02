@@ -17,8 +17,7 @@
 pragma solidity ^0.8.20;
 
 interface ICounter {
-    /// @notice Increments the counter, if the Steel proof verifies that the specified account holds at least 1 token.
-    /// @dev The Steel proof must be generated off-chain using RISC0-zkVM and submitted here.
+    /// @notice Increments the counter.
     function increment() external;
 
     /// @notice Returns the value of the counter.

@@ -16,10 +16,11 @@
 
 pragma solidity ^0.8.13;
 
-import {MerkleProof} from "openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import {Address} from "openzeppelin/contracts/utils/Address.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
-import "./IL1Block.sol";
 import "./IL2CrossDomainMessenger.sol";
+import {IL1Block} from "./IL1Block.sol";
+import {Bookmark} from "./Bookmark.sol";
 import {Steel} from "risc0/steel/Steel.sol";
 
 /// @notice Journal that is committed to by the guest.
@@ -34,46 +35,45 @@ struct Journal {
 }
 
 /// @notice L1Bridging verifier contract for RISC Zero receipts of execution.
-contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
-    bytes32 private immutable IMAGE_ID;
-    string private imageUrl;
-    IRiscZeroVerifier public immutable VERIFIER;
-    IL1Block private immutable L1_BLOCK;
+contract L2CrossDomainMessenger is IL2CrossDomainMessenger, Bookmark {
+    /// @notice Value used for the L1 sender storage slot before an actual sender is set. This value is non-zero to reduce the gas cost of message passing transactions.
+    address internal constant DEFAULT_L1_SENDER = 0x000000000000000000000000000000000000dEaD;
+
     address private immutable L1_CROSS_DOMAIN_MESSENGER;
-    address private xDomainMessageSender;
+
+    IRiscZeroVerifier private immutable VERIFIER;
+    bytes32 private immutable IMAGE_ID;
+
+    string private imageUrl;
+
+    /// @notice Address of the sender of the currently executing message on the other chain.
+    address internal xDomainMsgSender;
+
     mapping(bytes32 => bool) private relayedMessages;
-    mapping(uint256 blockNumber => bytes32 blockHash) private bookmarkedBlocks;
 
     constructor(
         IRiscZeroVerifier verifier,
         bytes32 imageId,
         string memory _imageUrl,
-        IL1Block l1Block,
-        address l1CrossDomainMessenger
-    ) {
+        address l1CrossDomainMessenger,
+        IL1Block l1Block
+    ) Bookmark(l1Block) {
         VERIFIER = verifier;
         IMAGE_ID = imageId;
         imageUrl = _imageUrl;
-        L1_BLOCK = l1Block;
         L1_CROSS_DOMAIN_MESSENGER = l1CrossDomainMessenger;
-        xDomainMessageSender = address(0);
+
+        xDomainMsgSender = DEFAULT_L1_SENDER;
     }
 
-    function number() external view returns (uint64) {
-        return L1_BLOCK.number();
-    }
+    function relayMessage(bytes calldata journalData, bytes calldata seal) external {
+        VERIFIER.verify(seal, IMAGE_ID, sha256(journalData));
 
-    function hash() external view returns (bytes32) {
-        return L1_BLOCK.hash();
-    }
+        Journal memory journal = abi.decode(journalData, (Journal));
+        require(journal.l1CrossDomainMessenger == L1_CROSS_DOMAIN_MESSENGER, "invalid l1CrossDomainMessenger");
+        require(validateCommitment(journal.commitment), "commitment verification failed");
 
-    function bookmarkL1Block() external returns (uint64) {
-        uint64 blockNumber = this.number();
-        bookmarkedBlocks[uint256(blockNumber)] = this.hash();
-
-        emit BookmarkedL1Block(blockNumber, bookmarkedBlocks[uint256(blockNumber)]);
-
-        return blockNumber;
+        relayVerifiedMessage(journal.target, journal.sender, journal.data, journal.digest);
     }
 
     function relayMessage(
@@ -84,6 +84,8 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
         Steel.Commitment calldata commitment,
         bytes calldata seal
     ) external {
+        require(validateCommitment(commitment), "commitment verification failed");
+
         bytes32 digest = keccak256(abi.encodePacked(sender, target, nonce, data));
         Journal memory journal = Journal({
             commitment: commitment,
@@ -96,42 +98,16 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
         });
         VERIFIER.verify(seal, IMAGE_ID, sha256(abi.encode(journal)));
 
-        require(validateCommitment(commitment), "commitment verification failed");
-        require(!relayedMessages[digest], "message already relayed");
-
-        xDomainMessageSender = sender;
-
-        (bool success,) = target.call(data);
-        require(success, "call failed");
-
-        relayedMessages[digest] = true;
-        xDomainMessageSender = address(0);
-
-        emit MessageRelayed(digest);
+        relayVerifiedMessage(target, sender, data, digest);
     }
 
-    function relayMessage(bytes calldata journal, bytes calldata seal) external {
-        VERIFIER.verify(seal, IMAGE_ID, sha256(journal));
+    /// @notice Retrieves the address of the contract or wallet that initiated the currently
+    ///         executing message on the other chain. Will throw an error if there is no message
+    ///         currently being executed. Allows the recipient of a call to see who triggered it.
+    function xDomainMessageSender() external view returns (address) {
+        require(xDomainMsgSender != DEFAULT_L1_SENDER, "L2CrossDomainMessenger: xDomainMsgSender is not set");
 
-        Journal memory decodedJournal = abi.decode(journal, (Journal));
-
-        require(decodedJournal.l1CrossDomainMessenger == L1_CROSS_DOMAIN_MESSENGER, "invalid l1CrossDomainMessenger");
-        require(validateCommitment(decodedJournal.commitment), "commitment verification failed");
-        require(!relayedMessages[decodedJournal.digest], "message already relayed");
-
-        xDomainMessageSender = decodedJournal.sender;
-
-        (bool success,) = decodedJournal.target.call(decodedJournal.data);
-        require(success, "call failed");
-
-        relayedMessages[decodedJournal.digest] = true;
-        xDomainMessageSender = address(0);
-
-        emit MessageRelayed(decodedJournal.digest);
-    }
-
-    function xDomainMessenger() external view returns (address) {
-        return xDomainMessageSender;
+        return xDomainMsgSender;
     }
 
     function imageInfo() external view returns (bytes32, string memory) {
@@ -139,6 +115,20 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
     }
 
     function validateCommitment(Steel.Commitment memory commitment) internal view returns (bool isValid) {
-        return commitment.blockHash == bookmarkedBlocks[commitment.blockNumber];
+        return commitment.blockHash == Bookmark.blocks[uint64(commitment.blockNumber)];
+    }
+
+    function relayVerifiedMessage(address target, address sender, bytes memory data, bytes32 digest) internal {
+        require(xDomainMsgSender == DEFAULT_L1_SENDER, "reentry");
+        require(!relayedMessages[digest], "message already relayed");
+
+        xDomainMsgSender = sender;
+        (bool success, bytes memory returndata) = target.call(data);
+        xDomainMsgSender = DEFAULT_L1_SENDER;
+
+        Address.verifyCallResultFromTarget(target, success, returndata);
+        relayedMessages[digest] = true;
+
+        emit MessageRelayed(digest);
     }
 }

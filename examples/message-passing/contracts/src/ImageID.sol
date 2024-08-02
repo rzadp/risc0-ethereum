@@ -20,5 +20,5 @@ pragma solidity ^0.8.20;
 
 library ImageID {
     bytes32 public constant CROSS_DOMAIN_MESSENGER_ID =
-        bytes32(0x0696ac6e377024140a292f2eae495cb49aef10c8f7f4c84680713552aa7a05dd);
+        bytes32(0x80640f67548398721efbe3fd48c3f2e21486b8088d43aaf880f3babff49ba6f5);
 }

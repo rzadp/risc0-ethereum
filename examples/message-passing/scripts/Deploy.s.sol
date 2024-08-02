@@ -40,7 +40,7 @@ contract Deploy is Script, RiscZeroCheats {
 
         IL1Block l1Block = new L1BlockMock();
         
-        IL2CrossDomainMessenger l2CrossDomainMessenger = new L2CrossDomainMessenger(verifier, ImageID.CROSS_DOMAIN_MESSENGER_ID, "", l1Block, address(l1CrossDomainMessenger));
+        IL2CrossDomainMessenger l2CrossDomainMessenger = new L2CrossDomainMessenger(verifier, ImageID.CROSS_DOMAIN_MESSENGER_ID, "", address(l1CrossDomainMessenger), l1Block);
         console2.log("Deployed L2 L2CrossDomainMessenger to", address(l2CrossDomainMessenger));
 
         Counter counter = new Counter(l2CrossDomainMessenger, address(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266));
