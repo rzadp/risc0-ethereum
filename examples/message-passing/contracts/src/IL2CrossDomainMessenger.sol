@@ -28,16 +28,6 @@ interface IL2CrossDomainMessenger is IL1Block {
     /// A new message has been bridged.
     event MessageRelayed(bytes32 digest);
 
-    // /// relay the message from L1.
-    // function relayMessage(
-    //     address target,
-    //     address sender,
-    //     uint256 nonce,
-    //     bytes calldata data,
-    //     Steel.Commitment calldata commitment,
-    //     bytes calldata seal
-    // ) external;
-
     /// relay the message from L1.
     function relayMessage(bytes calldata journal, bytes calldata seal) external;
 

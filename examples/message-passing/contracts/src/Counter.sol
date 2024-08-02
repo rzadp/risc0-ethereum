@@ -19,7 +19,7 @@ pragma solidity ^0.8.13;
 import "./IL2CrossDomainMessenger.sol";
 import "./ICounter.sol";
 
-contract Counter is ICounter{
+contract Counter is ICounter {
     uint256 private count;
     IL2CrossDomainMessenger private immutable L2_CROSS_DOMAIN_MESSENGER;
     address private immutable l1Sender;

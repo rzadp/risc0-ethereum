@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use alloy_primitives::Bytes;
 use alloy_sol_types::SolValue;
-use anyhow::Result;
-use risc0_zkvm::{sha::Digestible, Groth16ReceiptVerifierParameters};
+use anyhow::{bail, Result};
+use risc0_zkvm::{sha::Digestible, Groth16ReceiptVerifierParameters, InnerReceipt, Receipt};
 
 /// ABI encoding of the seal.
 pub fn abi_encode(seal: Vec<u8>) -> Result<Vec<u8>> {
@@ -31,6 +32,38 @@ pub fn encode(seal: Vec<u8>) -> Result<Vec<u8>> {
     selector_seal.extend_from_slice(&seal);
 
     Ok(selector_seal)
+}
+
+pub struct RiscZeroVerifierSeal(Vec<u8>);
+
+impl TryFrom<&Receipt> for RiscZeroVerifierSeal {
+    type Error = anyhow::Error;
+    fn try_from(value: &Receipt) -> std::result::Result<Self, Self::Error> {
+        Ok(Self(encode_from_receipt(value)?))
+    }
+}
+
+impl Into<Bytes> for RiscZeroVerifierSeal {
+    fn into(self) -> Bytes {
+        self.0.clone().into()
+    }
+}
+
+fn encode_from_receipt(receipt: &Receipt) -> Result<Vec<u8>> {
+    let seal = match receipt.inner.clone() {
+        InnerReceipt::Fake(receipt) => {
+            let seal = receipt.claim.digest().as_bytes().to_vec();
+            let selector = &[0u8; 4];
+            // Create a new vector with the capacity to hold both selector and seal
+            let mut selector_seal = Vec::with_capacity(selector.len() + seal.len());
+            selector_seal.extend_from_slice(selector);
+            selector_seal.extend_from_slice(&seal);
+            selector_seal
+        }
+        InnerReceipt::Groth16(receipt) => encode(receipt.seal)?,
+        _ => bail!("Unsupported receipt type"),
+    };
+    Ok(seal)
 }
 
 #[cfg(test)]

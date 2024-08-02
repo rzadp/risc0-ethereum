@@ -29,7 +29,7 @@ use alloy_primitives::{Address, U256};
 use anyhow::{bail, ensure, Context, Result};
 use clap::Parser;
 use cross_domain_messenger_methods::CROSS_DOMAIN_MESSENGER_ELF;
-use risc0_ethereum_contracts::groth16::encode;
+use risc0_ethereum_contracts::groth16::RiscZeroVerifierSeal;
 use risc0_steel::{
     ethereum::{EthEvmEnv, ETH_SEPOLIA_CHAIN_SPEC},
     Contract,
@@ -139,6 +139,10 @@ async fn main() -> Result<()> {
     let digest = log.inner.data.digest;
     let nonce = log.inner.data.nonce;
     let sender = l1_provider.default_signer_address();
+    println!(
+        "Sent message from {} to {} with nonce {} and digest {}",
+        sender, args.target_address, nonce, digest
+    );
     let target = args.target_address;
 
     // Bookmark block
@@ -196,7 +200,7 @@ async fn main() -> Result<()> {
     // Create an EVM environment from that provider and a block number.
     let mut env = EthEvmEnv::from_provider(l1_provider.clone(), block_number.into()).await?;
     //  The `with_chain_spec` method is used to specify the chain configuration.
-    env = env.with_chain_spec(&ETH_SEPOLIA_CHAIN_SPEC);
+    // env = env.with_chain_spec(&ETH_SEPOLIA_CHAIN_SPEC);
 
     // Prepare the function call
     let call = IL1CrossDomainMessenger::containsCall { digest: digest };
@@ -234,12 +238,12 @@ async fn main() -> Result<()> {
     .context("failed to create proof")?;
     let receipt = prove_info.receipt;
 
+    // Encode the groth16 seal with the selector.
+    let seal = RiscZeroVerifierSeal::try_from(&receipt)?;
+
     // Create an alloy instance of the L2CrossDomainMessenger contract.
     let contract =
         IL2CrossDomainMessenger::new(args.l2_cross_domain_messenger_address, l2_provider);
-
-    // Encode the groth16 seal with the selector and call the increment function of the contract.
-    let seal = encode(receipt.inner.groth16()?.seal.clone())?;
 
     // Call the increment function of the contract and wait for confirmation.
     println!(

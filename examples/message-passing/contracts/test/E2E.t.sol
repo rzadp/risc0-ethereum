@@ -18,7 +18,7 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
-import {ReceiptClaim, ReceiptClaimLib} from "risc0/IRiscZeroVerifier.sol";
+import {Receipt as RiscZeroReceipt} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import "../src/IL1CrossDomainMessenger.sol";
 import "../src/L1CrossDomainMessenger.sol";
@@ -30,9 +30,7 @@ import "../src/Counter.sol";
 import {Steel} from "risc0/steel/Steel.sol";
 
 contract E2ETest is Test {
-    using ReceiptClaimLib for ReceiptClaim;
-
-    IRiscZeroVerifier private verifier;
+    RiscZeroMockVerifier private verifier;
     IL1CrossDomainMessenger private l1CrossDomainMessenger;
     IL2CrossDomainMessenger private l2CrossDomainMessenger;
     IL1Block private l1Block;
@@ -40,7 +38,8 @@ contract E2ETest is Test {
     address private sender;
     address private evilSender;
 
-    bytes32 internal CROSS_DOMAIN_MESSENGER_IMAGE_ID = 0x0000000000000000000000000000000000000000000000000000000000000003;
+    bytes32 internal CROSS_DOMAIN_MESSENGER_IMAGE_ID =
+        0x0000000000000000000000000000000000000000000000000000000000000003;
 
     bytes4 MOCK_SELECTOR = bytes4(0);
 
@@ -93,13 +92,10 @@ contract E2ETest is Test {
         });
 
         // create a mock proof
-        ReceiptClaim memory CROSS_DOMAIN_MESSENGER_CLAIM =
-            ReceiptClaimLib.ok(CROSS_DOMAIN_MESSENGER_IMAGE_ID, sha256(abi.encode(journal)));
+        RiscZeroReceipt memory receipt =
+            verifier.mockProve(CROSS_DOMAIN_MESSENGER_IMAGE_ID, sha256(abi.encode(journal)));
 
-        bytes memory seal = abi.encodePacked(MOCK_SELECTOR, CROSS_DOMAIN_MESSENGER_CLAIM.digest());
-
-        // l2CrossDomainMessenger.relayMessage(target, sender, nonce, data, commitment, seal);
-        l2CrossDomainMessenger.relayMessage(abi.encode(journal), seal);
+        l2CrossDomainMessenger.relayMessage(abi.encode(journal), receipt.seal);
 
         assert(counter.get() == 1);
     }

@@ -18,7 +18,7 @@ pragma solidity >0.5.0 <0.9.0;
 
 interface IL1CrossDomainMessenger {
     event SentMessage(bytes32 indexed digest, uint256 indexed nonce);
-    
+
     /// Returns whether the digest of the message has been published.
     function contains(bytes32 digest) external view returns (bool);
 

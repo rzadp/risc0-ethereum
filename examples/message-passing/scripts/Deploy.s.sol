@@ -5,8 +5,10 @@
 pragma solidity ^0.8.20;
 
 import {Script, console2} from "forge-std/Script.sol";
+import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {ControlID, RiscZeroGroth16Verifier} from "risc0/groth16/RiscZeroGroth16Verifier.sol";
+import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {IL1CrossDomainMessenger} from "../contracts/src/IL1CrossDomainMessenger.sol";
 import {L1CrossDomainMessenger} from "../contracts/src/L1CrossDomainMessenger.sol";
 import {IL2CrossDomainMessenger} from "../contracts/src/IL2CrossDomainMessenger.sol";
@@ -16,7 +18,7 @@ import {L1BlockMock} from "../contracts/test/L1BlockMock.sol";
 import {ImageID} from "../contracts/src/ImageID.sol";
 import {Counter} from "../contracts/src/Counter.sol";
 
-contract Deploy is Script {
+contract Deploy is Script, RiscZeroCheats {
     function run() external {
         // Read and log the chainID
         uint256 chainId = block.chainid;
@@ -34,8 +36,7 @@ contract Deploy is Script {
         IL1CrossDomainMessenger l1CrossDomainMessenger = new L1CrossDomainMessenger();
         console2.log("Deployed L1 IL1CrossDomainMessenger to", address(l1CrossDomainMessenger));
 
-        RiscZeroGroth16Verifier verifier =
-            new RiscZeroGroth16Verifier(ControlID.CONTROL_ROOT, ControlID.BN254_CONTROL_ID);
+        IRiscZeroVerifier verifier = deployRiscZeroVerifier();
 
         IL1Block l1Block = new L1BlockMock();
         
