@@ -14,14 +14,22 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pragma solidity >0.5.0 <0.9.0;
+pragma solidity ^0.8.20;
 
 interface IL1CrossDomainMessenger {
-    event SentMessage(bytes32 indexed digest, uint256 indexed nonce);
+    /// @notice Emitted whenever a message is sent to the other chain.
+    /// @param target       Address of the recipient of the message.
+    /// @param sender       Address of the sender of the message.
+    /// @param data         Message to trigger the recipient address with.
+    /// @param messageNonce Unique nonce attached to the message.
+    event SentMessage(address indexed target, address sender, bytes data, uint256 messageNonce);
 
     /// Returns whether the digest of the message has been published.
     function contains(bytes32 digest) external view returns (bool);
 
     /// Sends a new message by commiting to its digest.
-    function sendMessage(address target, bytes calldata data) external returns (bytes32 digest, uint256 nonce);
+    function sendMessage(address target, bytes calldata data) external;
+
+    /// @notice Retrieves the next message nonce.
+    function messageNonce() external view returns (uint256);
 }

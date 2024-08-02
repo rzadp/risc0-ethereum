@@ -14,16 +14,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pragma solidity >0.5.0 <0.9.0;
+pragma solidity ^0.8.20;
 
-import "./IL1CrossDomainMessenger.sol";
+import {Hasher} from "./Hasher.sol";
+import {IL1CrossDomainMessenger} from "./IL1CrossDomainMessenger.sol";
 
 contract L1CrossDomainMessenger is IL1CrossDomainMessenger {
     mapping(bytes32 => bool) private messages;
-    uint256 private _nonce;
+    uint256 private msgNonce;
 
     constructor() {
-        _nonce = 0;
+        msgNonce = 0;
     }
 
     /// Returns whether the digest of the message has been published.
@@ -32,11 +33,28 @@ contract L1CrossDomainMessenger is IL1CrossDomainMessenger {
     }
 
     /// Sends a new message by commiting to its digest.
-    function sendMessage(address target, bytes calldata data) external returns (bytes32 digest, uint256 nonce) {
-        digest = keccak256(abi.encodePacked(msg.sender, target, _nonce, data));
+    function sendMessage(address target, bytes calldata data) external {
+        address sender = msg.sender;
+        uint256 nonce = messageNonce();
+        bytes32 digest = Hasher.hashCrossDomainMessage(target, sender, data, nonce);
         messages[digest] = true;
-        nonce = _nonce;
-        emit SentMessage(digest, nonce);
-        _nonce += 1;
+
+        emit SentMessage(target, sender, data, nonce);
+
+        unchecked {
+            ++msgNonce;
+        }
+    }
+
+    function messageNonce() public view returns (uint256) {
+        return msgNonce;
+    }
+
+    function encodeMessage(address target, address sender, bytes memory data, uint256 nonce)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encodeWithSignature("relayMessage(address,address,bytes,uint256)", target, sender, data, nonce);
     }
 }

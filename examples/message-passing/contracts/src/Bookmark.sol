@@ -14,7 +14,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import {IBookmark} from "./IBookmark.sol";
 import {IL1Block} from "./IL1Block.sol";

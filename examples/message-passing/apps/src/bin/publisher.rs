@@ -20,29 +20,29 @@ use std::time::Duration;
 
 use alloy::{
     network::EthereumWallet,
-    providers::{ProviderBuilder, WalletProvider},
+    providers::ProviderBuilder,
     signers::local::PrivateKeySigner,
     sol,
     sol_types::{SolCall, SolEvent},
 };
-use alloy_primitives::{Address, U256};
+use alloy_primitives::Address;
 use anyhow::{bail, ensure, Context, Result};
 use clap::Parser;
+use cross_domain_messenger_core::CrossDomainMessengerInput;
 use cross_domain_messenger_methods::CROSS_DOMAIN_MESSENGER_ELF;
 use risc0_ethereum_contracts::groth16::RiscZeroVerifierSeal;
 use risc0_steel::{ethereum::EthEvmEnv, Contract};
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, VerifierContext};
-use serde::{Deserialize, Serialize};
 use tokio::task;
 use tracing_subscriber::EnvFilter;
 use url::Url;
 
 sol!(
-    #[sol(rpc)]
+    #[sol(rpc, all_derives)]
     "../contracts/src/IL1CrossDomainMessenger.sol"
 );
 sol!(
-    #[sol(rpc)]
+    #[sol(rpc, all_derives)]
     "../contracts/src/IL2CrossDomainMessenger.sol"
 );
 
@@ -51,18 +51,9 @@ sol!("../contracts/src/ICounter.sol");
 
 // Contract to bookmark L1 blocks for later verification.
 sol!(
-    #[sol(rpc)]
+    #[sol(rpc, all_derives)]
     "../contracts/src/IBookmark.sol"
 );
-
-#[derive(Serialize, Deserialize)]
-pub struct CrossDomainMessengerInput {
-    pub l1_cross_domain_messenger: Address,
-    pub sender: Address,
-    pub target: Address,
-    pub nonce: U256,
-    pub data: Vec<u8>,
-}
 
 /// Arguments of the publisher CLI.
 #[derive(Parser, Debug)]
@@ -139,17 +130,19 @@ async fn main() -> Result<()> {
                 IL1CrossDomainMessenger::SentMessage::SIGNATURE
             )
         })?;
-
-    let digest = log.inner.data.digest;
-    let nonce = log.inner.data.nonce;
-    let sender = l1_provider.default_signer_address();
     println!(
-        "Sent message from {} to {} with nonce {} and digest {}",
-        sender, args.target_address, nonce, digest
+        "Calling {} emitted {:?}",
+        IL1CrossDomainMessenger::sendMessageCall::SIGNATURE,
+        &log.inner.data
     );
-    let target = args.target_address;
 
-    // Bookmark block
+    let target = log.inner.target;
+    let sender = log.inner.data.sender;
+    let data = log.inner.data.data;
+    let nonce = log.inner.data.messageNonce;
+    let digest = cross_domain_messenger_core::message_hash(&target, &sender, &data, &nonce);
+
+    // bookmark any block after the transaction was included
     let target_block_number = receipt.block_number.context("block_number missing")?;
 
     let bookmark_contract =
@@ -200,14 +193,6 @@ async fn main() -> Result<()> {
 
     let block_number = log.inner.data.number;
 
-    let cross_domain_messenger_input = CrossDomainMessengerInput {
-        l1_cross_domain_messenger: args.l1_cross_domain_messenger_address,
-        sender,
-        target,
-        nonce,
-        data,
-    };
-
     // Create an EVM environment from that provider and a block number.
     let mut env = EthEvmEnv::from_provider(l1_provider.clone(), block_number.into()).await?;
 
@@ -227,6 +212,14 @@ async fn main() -> Result<()> {
 
     // Finally, construct the input from the environment.
     let view_call_input = env.into_input().await?;
+
+    let cross_domain_messenger_input = CrossDomainMessengerInput {
+        l1_cross_domain_messenger: args.l1_cross_domain_messenger_address,
+        sender,
+        target,
+        data,
+        nonce,
+    };
 
     println!("Creating proof for the constructed input...");
     let prove_info = task::spawn_blocking(move || {

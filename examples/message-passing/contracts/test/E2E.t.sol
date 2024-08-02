@@ -14,29 +14,28 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 import {Receipt as RiscZeroReceipt} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
-import "../src/IL1CrossDomainMessenger.sol";
-import "../src/L1CrossDomainMessenger.sol";
-import "../src/IL1Block.sol";
-import "../src/IL2CrossDomainMessenger.sol";
-import "../src/L2CrossDomainMessenger.sol";
-import "./L1BlockMock.sol";
-import "../src/Counter.sol";
+import {Hasher} from "../src/Hasher.sol";
+import {IL1CrossDomainMessenger} from "../src/IL1CrossDomainMessenger.sol";
+import {L1CrossDomainMessenger} from "../src/L1CrossDomainMessenger.sol";
+import {IL1Block} from "../src/IL1Block.sol";
+import {Journal, L2CrossDomainMessenger} from "../src/L2CrossDomainMessenger.sol";
+import {L1BlockMock} from "./L1BlockMock.sol";
+import {Counter} from "../src/Counter.sol";
 import {Steel} from "risc0/steel/Steel.sol";
 
 contract E2ETest is Test {
     RiscZeroMockVerifier private verifier;
-    IL1CrossDomainMessenger private l1CrossDomainMessenger;
-    IL2CrossDomainMessenger private l2CrossDomainMessenger;
+    L1CrossDomainMessenger private l1CrossDomainMessenger;
+    L2CrossDomainMessenger private l2CrossDomainMessenger;
     IL1Block private l1Block;
     Counter private counter;
     address private sender;
-    address private evilSender;
 
     bytes32 internal CROSS_DOMAIN_MESSENGER_IMAGE_ID =
         0x0000000000000000000000000000000000000000000000000000000000000003;
@@ -45,42 +44,54 @@ contract E2ETest is Test {
 
     function setUp() public {
         sender = address(1);
-        evilSender = address(2);
+        vm.startPrank(sender);
 
         l1CrossDomainMessenger = new L1CrossDomainMessenger();
         verifier = new RiscZeroMockVerifier(MOCK_SELECTOR);
         l1Block = new L1BlockMock();
         l2CrossDomainMessenger = new L2CrossDomainMessenger(
-            verifier,
-            CROSS_DOMAIN_MESSENGER_IMAGE_ID,
-            "https://contains-message.com",
-            address(l1CrossDomainMessenger),
-            l1Block
+            verifier, CROSS_DOMAIN_MESSENGER_IMAGE_ID, address(l1CrossDomainMessenger), l1Block
         );
         counter = new Counter(l2CrossDomainMessenger, address(sender));
     }
 
-    function testE2E() public {
-        vm.startPrank(sender);
-
-        // define the message
+    function testCounterIncrement() public {
+        // pass Counter::increment() message
+        address target = address(counter);
         bytes memory data = abi.encodeCall(Counter.increment, ());
 
-        // define the target
-        address target = address(counter);
+        uint256 previous_count = counter.get();
 
-        // send a message
-        (bytes32 digest, uint256 nonce) = l1CrossDomainMessenger.sendMessage(target, data);
+        testCrossDomainMessenger(target, data);
 
-        // bookmark the block
+        // check that the counter was incremented
+        assert(counter.get() == previous_count + 1);
+    }
 
+    function testSHA256() public {
+        // sha256 hash
+        address target = address(0x02);
+        bytes memory data = unicode"こんにちは世界!";
+
+        testCrossDomainMessenger(target, data);
+    }
+
+    function testCrossDomainMessenger(address target, bytes memory data) internal {
+        uint256 nonce = l1CrossDomainMessenger.messageNonce();
+
+        // send a message on L1
+        vm.expectEmit(true, true, false, true);
+        emit IL1CrossDomainMessenger.SentMessage(target, sender, data, nonce);
+        l1CrossDomainMessenger.sendMessage(target, data);
+
+        // bookmark the next block
         vm.roll(1);
         uint256 blockNumber = l2CrossDomainMessenger.bookmarkL1Block();
         bytes32 blockHash = l1Block.hash();
 
-        // Mock the Journal
+        // mock the Journal
+        bytes32 digest = Hasher.hashCrossDomainMessage(target, sender, data, nonce);
         Steel.Commitment memory commitment = Steel.Commitment({blockNumber: blockNumber, blockHash: blockHash});
-
         Journal memory journal = Journal({
             commitment: commitment,
             l1CrossDomainMessenger: address(l1CrossDomainMessenger),
@@ -95,8 +106,7 @@ contract E2ETest is Test {
         RiscZeroReceipt memory receipt =
             verifier.mockProve(CROSS_DOMAIN_MESSENGER_IMAGE_ID, sha256(abi.encode(journal)));
 
+        // relay the message on L2
         l2CrossDomainMessenger.relayMessage(abi.encode(journal), receipt.seal);
-
-        assert(counter.get() == 1);
     }
 }

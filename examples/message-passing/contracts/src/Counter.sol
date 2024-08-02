@@ -14,7 +14,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import "./IL2CrossDomainMessenger.sol";
 import "./ICounter.sol";
@@ -37,7 +37,8 @@ contract Counter is ICounter {
             "Counter: Only L2CrossDomainMessenger can increment the counter"
         );
         require(L2_CROSS_DOMAIN_MESSENGER.xDomainMessageSender() == L1_SENDER, "Counter: Invalid L1 sender");
-        count += 1;
+
+        count++;
     }
 
     function get() external view returns (uint256) {

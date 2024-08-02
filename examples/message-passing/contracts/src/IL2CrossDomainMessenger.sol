@@ -14,22 +14,22 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pragma solidity >0.5.0 <0.9.0;
+pragma solidity ^0.8.20;
 
 import {IBookmark} from "./IBookmark.sol";
 
 interface IL2CrossDomainMessenger is IBookmark {
-    error VerificationFailed();
+    /// @notice Emitted whenever a message is successfully relayed on this chain.
+    /// @param msgHash Hash of the message that was relayed.
+    event RelayedMessage(bytes32 indexed msgHash);
 
-    /// A new message has been bridged.
-    event MessageRelayed(bytes32 digest);
-
-    /// relay the message from L1.
+    /// @notice Relays a message that was sent to the other CrossDomainMessenger contract.
+    /// @param journal The full journal.
+    /// @param seal The encoded cryptographic proof (i.e. SNARK).
     function relayMessage(bytes calldata journal, bytes calldata seal) external;
 
-    /// returns the cross domain messenger address, i.e., the sender of the message.
+    /// @notice Retrieves the address of the contract or wallet that initiated the currently
+    ///         executing message on the other chain. Will throw an error if there is no message
+    ///         currently being executed. Allows the recipient of a call to see who triggered it.
     function xDomainMessageSender() external view returns (address);
-
-    /// Returns the imageId and its url.
-    function imageInfo() external view returns (bytes32, string memory);
 }
