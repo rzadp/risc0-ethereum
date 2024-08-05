@@ -16,45 +16,30 @@
 // to the Bonsai proving service and publish the received proofs directly
 // to your deployed app contract.
 
-use std::time::Duration;
-
 use alloy::{
-    network::EthereumWallet,
-    providers::ProviderBuilder,
-    rpc::types::TransactionReceipt,
-    signers::local::PrivateKeySigner,
-    sol,
-    sol_types::{SolCall, SolEvent},
+    network::EthereumWallet, providers::ProviderBuilder, signers::local::PrivateKeySigner, sol,
+    sol_types::SolCall,
 };
 use alloy_primitives::Address;
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{ensure, Context, Result};
 use clap::Parser;
-use cross_domain_messenger_core::{CrossDomainMessengerInput, Message};
+use cross_domain_messenger_core::{
+    contracts::{
+        IBookmarkService, IL1CrossDomainMessenger, IL1CrossDomainMessengerService,
+        IL2CrossDomainMessengerService,
+    },
+    CrossDomainMessengerInput,
+};
 use cross_domain_messenger_methods::CROSS_DOMAIN_MESSENGER_ELF;
 use risc0_ethereum_contracts::groth16::RiscZeroVerifierSeal;
 use risc0_steel::{ethereum::EthEvmEnv, Contract};
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, VerifierContext};
-use tokio::{task, time};
+use tokio::task;
 use tracing_subscriber::EnvFilter;
 use url::Url;
 
-sol!(
-    #[sol(rpc, all_derives)]
-    "../contracts/src/IL1CrossDomainMessenger.sol"
-);
-sol!(
-    #[sol(rpc, all_derives)]
-    "../contracts/src/IL2CrossDomainMessenger.sol"
-);
-
 // Contract to call via L1.
 sol!("../contracts/src/ICounter.sol");
-
-// Contract to bookmark L1 blocks for later verification.
-sol!(
-    #[sol(rpc, all_derives)]
-    "../contracts/src/IBookmark.sol"
-);
 
 /// Arguments of the publisher CLI.
 #[derive(Parser, Debug)]
@@ -107,65 +92,28 @@ async fn main() -> Result<()> {
         .on_http(args.l2_rpc_url);
 
     // Instantiate all the contracts we want to call.
-    let l1_messenger_contract =
-        IL1CrossDomainMessenger::new(args.l1_cross_domain_messenger_address, l1_provider.clone());
-    let l2_messenger_contract =
-        IL2CrossDomainMessenger::new(args.l2_cross_domain_messenger_address, l2_provider.clone());
+    let l1_messenger_contract = IL1CrossDomainMessengerService::new(
+        args.l1_cross_domain_messenger_address,
+        l1_provider.clone(),
+    );
+    let l2_messenger_contract = IL2CrossDomainMessengerService::new(
+        args.l2_cross_domain_messenger_address,
+        l2_provider.clone(),
+    );
     let bookmark_contract =
-        IBookmark::new(args.l2_cross_domain_messenger_address, l2_provider.clone());
+        IBookmarkService::new(args.l2_cross_domain_messenger_address, l2_provider.clone());
 
     // Prepare the message to be passed from L1 to L2
     let target = args.target_address;
     let data = ICounter::incrementCall {}.abi_encode();
 
     // Send a transaction calling IL1CrossDomainMessenger.sendMessage
-    let send_message_call = l1_messenger_contract.sendMessage(target, data.into());
-    let pending_tx = send_message_call.send().await?;
-    let receipt = pending_tx
-        .with_timeout(Some(Duration::from_secs(60)))
-        .get_receipt()
+    let (message, message_block_number) = l1_messenger_contract
+        .send_message(target, data.into())
         .await?;
 
-    // Process the transaction result
-    ensure!(receipt.status(), "transaction failed");
-    let message_block_number = receipt.block_number.unwrap();
-    let event: IL1CrossDomainMessenger::SentMessage = into_event(receipt)?;
-    println!("Message submitted on L1: {:?}", event);
-    let message = Message {
-        target: event.target,
-        sender: event.sender,
-        data: event.data,
-        nonce: event.messageNonce,
-    };
-
-    // Call IBookmark.bookmarkL1Block until we can bookmark a block that contains the sent message.
-    let bookmark_call = bookmark_contract.bookmarkL1Block();
-    loop {
-        let current_block_number = bookmark_call.call().await?._0;
-        if current_block_number >= message_block_number {
-            break;
-        }
-        println!(
-            "Waiting for L1 block to catch up: {} < {}",
-            current_block_number, message_block_number
-        );
-        time::sleep(Duration::from_secs(5)).await;
-    }
-
-    // Send a transaction calling IBookmark.bookmarkL1Block to create an on-chain bookmark.
-    let pending_tx = bookmark_call
-        .send()
-        .await
-        .context("failed to send bookmarkL1Block")?;
-    let receipt = pending_tx
-        .with_timeout(Some(Duration::from_secs(60)))
-        .get_receipt()
-        .await
-        .context("failed to confirm tx")?;
-
-    // Get the number of the actual bookmarked block.
-    let event: IBookmark::BookmarkedL1Block = into_event(receipt)?;
-    let bookmark_block_number = event.number;
+    // Bookmark the block number of the message
+    let bookmark_block_number = bookmark_contract.bookmark(message_block_number).await?;
 
     // Run Steel:
     // Create an EVM environment from that provider and a block number.
@@ -213,26 +161,10 @@ async fn main() -> Result<()> {
     let seal = RiscZeroVerifierSeal::try_from(&receipt)?;
 
     // Call the increment function of the contract and wait for confirmation.
-    let call_builder =
-        l2_messenger_contract.relayMessage(receipt.journal.bytes.into(), seal.into());
-    let pending_tx = call_builder.send().await?;
-    let receipt = pending_tx
-        .with_timeout(Some(Duration::from_secs(60)))
-        .get_receipt()
+    let msg_hash = l2_messenger_contract
+        .relay_message(receipt.journal.bytes.into(), seal.into())
         .await?;
-    let event = into_event::<IL2CrossDomainMessenger::RelayedMessage>(receipt)?;
-    println!("Message relayed {:?}", event);
+    println!("Message relayed {:?}", msg_hash);
 
     Ok(())
-}
-
-fn into_event<E: SolEvent>(receipt: TransactionReceipt) -> Result<E> {
-    ensure!(receipt.status(), "transaction failed");
-    for log in receipt.inner.logs() {
-        match log.log_decode::<E>() {
-            Ok(decoded_log) => return Ok(decoded_log.inner.data),
-            Err(_) => {}
-        }
-    }
-    bail!("invalid events emitted")
 }

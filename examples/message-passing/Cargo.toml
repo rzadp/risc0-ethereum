@@ -32,6 +32,7 @@ cross-domain-messenger-methods = { path = "./methods" }
 cross-domain-messenger-core = { path = "./core" }
 serde = { version = "1.0", features = ["derive", "std"] }
 tokio = { version = "1.39", features = ["full"] }
+tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2.5" }
 

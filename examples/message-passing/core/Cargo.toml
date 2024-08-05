@@ -8,3 +8,10 @@ alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 risc0-steel = { workspace = true }
 serde = { workspace = true }
+
+[target.'cfg(not(target_os = "zkvm"))'.dependencies]
+alloy = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

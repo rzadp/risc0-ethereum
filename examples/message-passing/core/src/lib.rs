@@ -17,6 +17,9 @@ use alloy_sol_types::{sol, SolStruct};
 use risc0_steel::SolCommitment;
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(target_os = "zkvm"))]
+pub mod contracts;
+
 sol! {
     interface IL1CrossDomainMessenger {
         /// Returns whether the digest of the message has been committed to be relayed.
