@@ -11,7 +11,7 @@ repository = { workspace = true }
 anyhow = "1.0"
 
 [dependencies]
-alloy-primitives = {workspace = true }
+alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
 ethers = { version = "2.0", features = ["rustls", "ws"] }
