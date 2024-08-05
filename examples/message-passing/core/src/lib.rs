@@ -12,63 +12,61 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy_primitives::{Address, Bytes, Keccak256, B256, U256};
-use alloy_sol_types::sol;
+use alloy_primitives::{Address, B256};
+use alloy_sol_types::{sol, SolStruct};
 use risc0_steel::SolCommitment;
 use serde::{Deserialize, Serialize};
 
 sol! {
-    /// IL1CrossDomainMessenger contains function signature.
     interface IL1CrossDomainMessenger {
+        /// Returns whether the digest of the message has been committed to be relayed.
         function contains(bytes32 digest) external view returns (bool);
     }
 }
 
 sol! {
-    struct Journal {
-        SolCommitment commitment;
-        address l1CrossDomainMessenger;
+    /// A Message to be relayed.
+    #[derive(Serialize, Deserialize)]
+    struct Message {
         address target;
         address sender;
         bytes data;
         uint256 nonce;
-        bytes32 digest;
+    }
+
+    /// Journal returned by the guest.
+    struct Journal {
+        SolCommitment commitment;
+        address l1CrossDomainMessenger;
+        Message message;
+        bytes32 messageDigest;
+    }
+}
+
+impl Message {
+    #[inline]
+    pub fn digest(&self) -> B256 {
+        return self.eip712_hash_struct();
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct CrossDomainMessengerInput {
     pub l1_cross_domain_messenger: Address,
-    pub target: Address,
-    pub sender: Address,
-    pub data: Bytes,
-    pub nonce: U256,
+    pub message: Message,
 }
 
 impl CrossDomainMessengerInput {
+    /// Converts the input into the corresponding [Journal], leaving the commitment empty.
     #[inline]
     pub fn into_journal(self) -> Journal {
-        let digest = message_hash(&self.target, &self.sender, &self.data, &self.nonce);
+        let digest = self.message.digest();
+
         Journal {
             commitment: SolCommitment::default(),
             l1CrossDomainMessenger: self.l1_cross_domain_messenger,
-            target: self.target,
-            sender: self.sender,
-            data: self.data,
-            nonce: self.nonce,
-            digest,
+            message: self.message,
+            messageDigest: digest,
         }
     }
-}
-
-/// Computes the hash of the message that was relayed.
-#[inline]
-pub fn message_hash(target: &Address, sender: &Address, data: &Bytes, nonce: &U256) -> B256 {
-    let mut hasher = Keccak256::new();
-    hasher.update("relayMessage(address,address,bytes,uint256)");
-    hasher.update(target);
-    hasher.update(sender);
-    hasher.update(data);
-    hasher.update(nonce.to_be_bytes::<32>());
-    hasher.finalize()
 }

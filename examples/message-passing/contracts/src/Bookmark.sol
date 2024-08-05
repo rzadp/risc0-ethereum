@@ -20,6 +20,7 @@ import {IBookmark} from "./IBookmark.sol";
 import {IL1Block} from "./IL1Block.sol";
 
 contract Bookmark is IBookmark {
+    /// @notice Address of the L1Block contract.
     IL1Block private immutable L1_BLOCK;
 
     mapping(uint64 blockNumber => bytes32 blockHash) internal blocks;

@@ -24,10 +24,10 @@ interface IL1CrossDomainMessenger {
     /// @param messageNonce Unique nonce attached to the message.
     event SentMessage(address indexed target, address sender, bytes data, uint256 messageNonce);
 
-    /// Returns whether the digest of the message has been published.
+    /// @notice Returns whether the digest of the message has been committed to be relayed.
     function contains(bytes32 digest) external view returns (bool);
 
-    /// Sends a new message by commiting to its digest.
+    /// @notice Sends a new message by commiting to its digest.
     function sendMessage(address target, bytes calldata data) external;
 
     /// @notice Retrieves the next message nonce.

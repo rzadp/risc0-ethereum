@@ -21,6 +21,7 @@ use std::time::Duration;
 use alloy::{
     network::EthereumWallet,
     providers::ProviderBuilder,
+    rpc::types::TransactionReceipt,
     signers::local::PrivateKeySigner,
     sol,
     sol_types::{SolCall, SolEvent},
@@ -28,12 +29,12 @@ use alloy::{
 use alloy_primitives::Address;
 use anyhow::{bail, ensure, Context, Result};
 use clap::Parser;
-use cross_domain_messenger_core::CrossDomainMessengerInput;
+use cross_domain_messenger_core::{CrossDomainMessengerInput, Message};
 use cross_domain_messenger_methods::CROSS_DOMAIN_MESSENGER_ELF;
 use risc0_ethereum_contracts::groth16::RiscZeroVerifierSeal;
 use risc0_steel::{ethereum::EthEvmEnv, Contract};
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, VerifierContext};
-use tokio::task;
+use tokio::{task, time};
 use tracing_subscriber::EnvFilter;
 use url::Url;
 
@@ -72,15 +73,15 @@ struct Args {
     l2_rpc_url: Url,
 
     /// Target's contract address on L2
-    #[clap(long)]
+    #[clap(long, env)]
     target_address: Address,
 
     /// l1_cross_domain_messenger_address's contract address on L1
-    #[clap(long)]
+    #[clap(long, env)]
     l1_cross_domain_messenger_address: Address,
 
     /// l2_cross_domain_messenger_address's contract address on L2
-    #[clap(long)]
+    #[clap(long, env)]
     l2_cross_domain_messenger_address: Address,
 }
 
@@ -105,71 +106,53 @@ async fn main() -> Result<()> {
         .wallet(wallet.clone())
         .on_http(args.l2_rpc_url);
 
-    let counter = ICounter::incrementCall {};
-    let data = counter.abi_encode();
-
-    // Create an alloy instance of the Counter contract.
-    let l1_cross_domain_messenger =
+    // Instantiate all the contracts we want to call.
+    let l1_messenger_contract =
         IL1CrossDomainMessenger::new(args.l1_cross_domain_messenger_address, l1_provider.clone());
-    let call_builder =
-        l1_cross_domain_messenger.sendMessage(args.target_address, data.clone().into());
-    let pending_tx = call_builder.send().await?;
+    let l2_messenger_contract =
+        IL2CrossDomainMessenger::new(args.l2_cross_domain_messenger_address, l2_provider.clone());
+    let bookmark_contract =
+        IBookmark::new(args.l2_cross_domain_messenger_address, l2_provider.clone());
+
+    // Prepare the message to be passed from L1 to L2
+    let target = args.target_address;
+    let data = ICounter::incrementCall {}.abi_encode();
+
+    // Send a transaction calling IL1CrossDomainMessenger.sendMessage
+    let send_message_call = l1_messenger_contract.sendMessage(target, data.into());
+    let pending_tx = send_message_call.send().await?;
     let receipt = pending_tx
         .with_timeout(Some(Duration::from_secs(60)))
         .get_receipt()
         .await?;
+
+    // Process the transaction result
     ensure!(receipt.status(), "transaction failed");
-    let [log] = receipt.inner.logs() else {
-        bail!("call must emit exactly one event")
+    let message_block_number = receipt.block_number.unwrap();
+    let event: IL1CrossDomainMessenger::SentMessage = into_event(receipt)?;
+    println!("Message submitted on L1: {:?}", event);
+    let message = Message {
+        target: event.target,
+        sender: event.sender,
+        data: event.data,
+        nonce: event.messageNonce,
     };
-    let log = log
-        .log_decode::<IL1CrossDomainMessenger::SentMessage>()
-        .with_context(|| {
-            format!(
-                "call did not emit {}",
-                IL1CrossDomainMessenger::SentMessage::SIGNATURE
-            )
-        })?;
-    println!(
-        "Calling {} emitted {:?}",
-        IL1CrossDomainMessenger::sendMessageCall::SIGNATURE,
-        &log.inner.data
-    );
 
-    let target = log.inner.target;
-    let sender = log.inner.data.sender;
-    let data = log.inner.data.data;
-    let nonce = log.inner.data.messageNonce;
-    let digest = cross_domain_messenger_core::message_hash(&target, &sender, &data, &nonce);
-
-    // bookmark any block after the transaction was included
-    let target_block_number = receipt.block_number.context("block_number missing")?;
-
-    let bookmark_contract =
-        IBookmark::new(args.l2_cross_domain_messenger_address, l2_provider.clone());
+    // Call IBookmark.bookmarkL1Block until we can bookmark a block that contains the sent message.
     let bookmark_call = bookmark_contract.bookmarkL1Block();
-
     loop {
-        let current_block_number = bookmark_call
-            .call()
-            .await
-            .context("failed to call bookmarkL1Block")?
-            ._0;
-        if current_block_number >= target_block_number {
+        let current_block_number = bookmark_call.call().await?._0;
+        if current_block_number >= message_block_number {
             break;
         }
         println!(
             "Waiting for L1 block to catch up: {} < {}",
-            current_block_number, target_block_number
+            current_block_number, message_block_number
         );
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        time::sleep(Duration::from_secs(5)).await;
     }
 
-    println!(
-        "Sending Tx calling {} Function of {:#}...",
-        IBookmark::bookmarkL1BlockCall::SIGNATURE,
-        bookmark_contract.address()
-    );
+    // Send a transaction calling IBookmark.bookmarkL1Block to create an on-chain bookmark.
     let pending_tx = bookmark_call
         .send()
         .await
@@ -179,52 +162,34 @@ async fn main() -> Result<()> {
         .get_receipt()
         .await
         .context("failed to confirm tx")?;
-    let [log] = receipt.inner.logs() else {
-        bail!("call must emit exactly one event")
-    };
-    let log = log
-        .log_decode::<IBookmark::BookmarkedL1Block>()
-        .with_context(|| {
-            format!(
-                "call did not emit {}",
-                IBookmark::BookmarkedL1Block::SIGNATURE
-            )
-        })?;
 
-    let block_number = log.inner.data.number;
+    // Get the number of the actual bookmarked block.
+    let event: IBookmark::BookmarkedL1Block = into_event(receipt)?;
+    let bookmark_block_number = event.number;
 
+    // Run Steel:
     // Create an EVM environment from that provider and a block number.
-    let mut env = EthEvmEnv::from_provider(l1_provider.clone(), block_number.into()).await?;
-
-    // Prepare the function call
-    let call = IL1CrossDomainMessenger::containsCall { digest };
-
-    // Preflight the call to prepare the input that is required to execute the function in
-    // the guest without RPC access. It also returns the result of the call.
+    let mut env =
+        EthEvmEnv::from_provider(l1_provider.clone(), bookmark_block_number.into()).await?;
+    // Prepare the function call to be called inside steal
+    let call = IL1CrossDomainMessenger::containsCall {
+        digest: message.digest(),
+    };
+    // Preflight the call to prepare the input for the guest.
     let mut contract = Contract::preflight(args.l1_cross_domain_messenger_address, &mut env);
-    let returns = contract.call_builder(&call).call().await?;
-    println!(
-        "Call {} Function on {:#} returns: {}",
-        IL1CrossDomainMessenger::containsCall::SIGNATURE,
-        args.l1_cross_domain_messenger_address,
-        returns._0
-    );
-
-    // Finally, construct the input from the environment.
-    let view_call_input = env.into_input().await?;
-
+    let success = contract.call_builder(&call).call().await?._0;
+    ensure!(success, "message {} not found", call.digest);
+    // Finally, construct the input for the guest.
+    let evm_input = env.into_input().await?;
     let cross_domain_messenger_input = CrossDomainMessengerInput {
         l1_cross_domain_messenger: args.l1_cross_domain_messenger_address,
-        sender,
-        target,
-        data,
-        nonce,
+        message,
     };
 
     println!("Creating proof for the constructed input...");
     let prove_info = task::spawn_blocking(move || {
         let env = ExecutorEnv::builder()
-            .write(&view_call_input)?
+            .write(&evm_input)?
             .write(&cross_domain_messenger_input)?
             .build()
             .unwrap();
@@ -238,21 +203,16 @@ async fn main() -> Result<()> {
     })
     .await?
     .context("failed to create proof")?;
+    println!(
+        "Proving finished in {} cycles",
+        prove_info.stats.total_cycles
+    );
     let receipt = prove_info.receipt;
 
     // Encode the groth16 seal with the selector.
     let seal = RiscZeroVerifierSeal::try_from(&receipt)?;
 
-    // Create an alloy instance of the L2CrossDomainMessenger contract.
-    let l2_messenger_contract =
-        IL2CrossDomainMessenger::new(args.l2_cross_domain_messenger_address, l2_provider);
-
     // Call the increment function of the contract and wait for confirmation.
-    println!(
-        "Sending Tx calling {} Function of {:#}...",
-        IL2CrossDomainMessenger::relayMessageCall::SIGNATURE,
-        l2_messenger_contract.address()
-    );
     let call_builder =
         l2_messenger_contract.relayMessage(receipt.journal.bytes.into(), seal.into());
     let pending_tx = call_builder.send().await?;
@@ -260,7 +220,19 @@ async fn main() -> Result<()> {
         .with_timeout(Some(Duration::from_secs(60)))
         .get_receipt()
         .await?;
-    ensure!(receipt.status(), "transaction failed");
+    let event = into_event::<IL2CrossDomainMessenger::RelayedMessage>(receipt)?;
+    println!("Message relayed {:?}", event);
 
     Ok(())
+}
+
+fn into_event<E: SolEvent>(receipt: TransactionReceipt) -> Result<E> {
+    ensure!(receipt.status(), "transaction failed");
+    for log in receipt.inner.logs() {
+        match log.log_decode::<E>() {
+            Ok(decoded_log) => return Ok(decoded_log.inner.data),
+            Err(_) => {}
+        }
+    }
+    bail!("invalid events emitted")
 }

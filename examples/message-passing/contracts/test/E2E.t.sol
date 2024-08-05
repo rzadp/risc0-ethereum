@@ -20,7 +20,7 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 import {Receipt as RiscZeroReceipt} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
-import {Hasher} from "../src/Hasher.sol";
+import {Journal, Message, Digest} from "../src/Structs.sol";
 import {IL1CrossDomainMessenger} from "../src/IL1CrossDomainMessenger.sol";
 import {L1CrossDomainMessenger} from "../src/L1CrossDomainMessenger.sol";
 import {IL1Block} from "../src/IL1Block.sol";
@@ -30,6 +30,9 @@ import {Counter} from "../src/Counter.sol";
 import {Steel} from "risc0/steel/Steel.sol";
 
 contract E2ETest is Test {
+    using Digest for Message;
+    using Digest for Journal;
+
     RiscZeroMockVerifier private verifier;
     L1CrossDomainMessenger private l1CrossDomainMessenger;
     L2CrossDomainMessenger private l2CrossDomainMessenger;
@@ -37,8 +40,7 @@ contract E2ETest is Test {
     Counter private counter;
     address private sender;
 
-    bytes32 internal CROSS_DOMAIN_MESSENGER_IMAGE_ID =
-        0x0000000000000000000000000000000000000000000000000000000000000003;
+    bytes32 internal CROSS_DOMAIN_MESSENGER_IMAGE_ID = bytes32(uint256(0x03));
 
     bytes4 MOCK_SELECTOR = bytes4(0);
 
@@ -90,18 +92,13 @@ contract E2ETest is Test {
         bytes32 blockHash = l1Block.hash();
 
         // mock the Journal
-        bytes32 digest = Hasher.hashCrossDomainMessage(target, sender, data, nonce);
-        Steel.Commitment memory commitment = Steel.Commitment({blockNumber: blockNumber, blockHash: blockHash});
+        Message memory message = Message(target, sender, data, nonce);
         Journal memory journal = Journal({
-            commitment: commitment,
+            commitment: Steel.Commitment(blockNumber, blockHash),
             l1CrossDomainMessenger: address(l1CrossDomainMessenger),
-            sender: sender,
-            target: target,
-            nonce: nonce,
-            data: data,
-            digest: digest
+            message: message,
+            messageDigest: message.digest()
         });
-
         // create a mock proof
         RiscZeroReceipt memory receipt =
             verifier.mockProve(CROSS_DOMAIN_MESSENGER_IMAGE_ID, sha256(abi.encode(journal)));

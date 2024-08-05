@@ -16,12 +16,14 @@
 
 pragma solidity ^0.8.20;
 
+/// @notice Interface to bookmark L1 blocks.
 interface IBookmark {
-    /// A new L1 block has been bookmarked.
+    /// @notice A new L1 block has been bookmarked.
     event BookmarkedL1Block(uint64 number, bytes32 hash);
 
-    /// Bookmarks the current L1 block.
+    /// @notice Bookmarks the current L1 block.
     function bookmarkL1Block() external returns (uint64);
 
+    /// @notice Returns the bookmarked hash of the block with the given number.
     function getBookmark(uint64 blockNumber) external view returns (bytes32);
 }

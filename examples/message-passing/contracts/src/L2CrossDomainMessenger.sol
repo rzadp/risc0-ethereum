@@ -19,24 +19,18 @@ pragma solidity ^0.8.20;
 import {Address} from "openzeppelin/contracts/utils/Address.sol";
 import {SafeCast} from "openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
-import "./IL2CrossDomainMessenger.sol";
+import {Steel} from "risc0/steel/Steel.sol";
+import {IL2CrossDomainMessenger} from "./IL2CrossDomainMessenger.sol";
 import {IL1Block} from "./IL1Block.sol";
 import {Bookmark} from "./Bookmark.sol";
-import {Steel} from "risc0/steel/Steel.sol";
-
-/// @notice Journal that is committed to by the guest.
-struct Journal {
-    Steel.Commitment commitment;
-    address l1CrossDomainMessenger;
-    address sender;
-    address target;
-    uint256 nonce;
-    bytes data;
-    bytes32 digest;
-}
+import {Journal, Message, Digest} from "./Structs.sol";
 
 /// @notice L1Bridging verifier contract for RISC Zero receipts of execution.
 contract L2CrossDomainMessenger is IL2CrossDomainMessenger, Bookmark {
+    using Address for address;
+    using SafeCast for uint256;
+    using Digest for Journal;
+
     /// @notice Value used for the L1 sender storage slot before an actual sender is set. This value is non-zero to
     ///         reduce the gas cost of message passing transactions.
     address internal constant DEFAULT_L1_SENDER = 0x000000000000000000000000000000000000dEaD;
@@ -74,7 +68,7 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger, Bookmark {
         require(journal.l1CrossDomainMessenger == L1_CROSS_DOMAIN_MESSENGER, "invalid l1CrossDomainMessenger");
         require(validateCommitment(journal.commitment), "commitment verification failed");
 
-        relayVerifiedMessage(journal.target, journal.sender, journal.data, journal.digest);
+        relayVerifiedMessage(journal.message, journal.messageDigest);
     }
 
     function xDomainMessageSender() external view returns (address) {
@@ -84,18 +78,18 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger, Bookmark {
     }
 
     function validateCommitment(Steel.Commitment memory commitment) internal view returns (bool) {
-        return commitment.blockHash == Bookmark.blocks[SafeCast.toUint64(commitment.blockNumber)];
+        return commitment.blockHash == Bookmark.blocks[commitment.blockNumber.toUint64()];
     }
 
-    function relayVerifiedMessage(address target, address sender, bytes memory data, bytes32 digest) internal {
+    function relayVerifiedMessage(Message memory message, bytes32 digest) internal {
         require(xDomainMsgSender == DEFAULT_L1_SENDER, "L2CrossDomainMessenger: reentrant call");
         require(!relayedMessages[digest], "L2CrossDomainMessenger: message already relayed");
 
-        xDomainMsgSender = sender;
-        (bool success, bytes memory returndata) = target.call(data);
+        xDomainMsgSender = message.sender;
+        (bool success, bytes memory returndata) = message.target.call(message.data);
         xDomainMsgSender = DEFAULT_L1_SENDER;
 
-        Address.verifyCallResultFromTarget(target, success, returndata);
+        message.target.verifyCallResultFromTarget(success, returndata);
         relayedMessages[digest] = true;
 
         emit RelayedMessage(digest);

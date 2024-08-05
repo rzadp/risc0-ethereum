@@ -16,10 +16,12 @@
 
 pragma solidity ^0.8.20;
 
-import {Hasher} from "./Hasher.sol";
+import {Message, Digest} from "./Structs.sol";
 import {IL1CrossDomainMessenger} from "./IL1CrossDomainMessenger.sol";
 
 contract L1CrossDomainMessenger is IL1CrossDomainMessenger {
+    using Digest for Message;
+
     mapping(bytes32 => bool) private messages;
     uint256 private msgNonce;
 
@@ -27,19 +29,15 @@ contract L1CrossDomainMessenger is IL1CrossDomainMessenger {
         msgNonce = 0;
     }
 
-    /// Returns whether the digest of the message has been published.
     function contains(bytes32 digest) external view returns (bool) {
         return messages[digest];
     }
 
-    /// Sends a new message by commiting to its digest.
     function sendMessage(address target, bytes calldata data) external {
-        address sender = msg.sender;
-        uint256 nonce = messageNonce();
-        bytes32 digest = Hasher.hashCrossDomainMessage(target, sender, data, nonce);
-        messages[digest] = true;
+        Message memory message = Message(target, msg.sender, data, messageNonce());
+        messages[message.digest()] = true;
 
-        emit SentMessage(target, sender, data, nonce);
+        emit SentMessage(message.target, message.sender, message.data, message.nonce);
 
         unchecked {
             ++msgNonce;
@@ -48,13 +46,5 @@ contract L1CrossDomainMessenger is IL1CrossDomainMessenger {
 
     function messageNonce() public view returns (uint256) {
         return msgNonce;
-    }
-
-    function encodeMessage(address target, address sender, bytes memory data, uint256 nonce)
-        internal
-        pure
-        returns (bytes memory)
-    {
-        return abi.encodeWithSignature("relayMessage(address,address,bytes,uint256)", target, sender, data, nonce);
     }
 }
