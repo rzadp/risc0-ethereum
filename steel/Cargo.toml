@@ -1,7 +1,7 @@
 [package]
 name = "risc0-steel"
 description = "Query Ethereum state, or any other EVM-based blockchain state within the RISC Zero zkVM."
-version = "0.12.0-alpha.1"
+version = "0.13.0-alpha.1"
 edition = { workspace = true }
 license = { workspace = true }
 homepage = { workspace = true }
@@ -25,9 +25,8 @@ once_cell = { workspace = true }
 revm = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true, optional = true }
-thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
-url = { workspace = true }
+url = { workspace = true, optional = true }
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["node-bindings"] }
@@ -38,4 +37,4 @@ test-log = { workspace = true }
 
 [features]
 default = []
-host = ["dep:alloy", "dep:log", "dep:serde_json", "dep:tokio"]
+host = ["dep:alloy", "dep:log", "dep:serde_json", "dep:tokio", "dep:url"]
