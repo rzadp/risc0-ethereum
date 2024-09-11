@@ -48,3 +48,4 @@ host = [
     "dep:tokio",
     "dep:url",
 ]
+kzg = ["revm/kzg-rs"]
