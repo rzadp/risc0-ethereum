@@ -14,7 +14,6 @@ pub mod electra;
 pub mod error;
 pub mod execution_engine;
 mod fork;
-pub mod networking;
 pub mod networks;
 pub mod phase0;
 pub mod primitives;

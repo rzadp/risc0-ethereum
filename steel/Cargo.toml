@@ -32,18 +32,9 @@ tokio = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
 blst = { version = "0.3.11", optional = true }
-bs58 = { version = "0.5", optional = true }
 c-kzg = { version = "1.0", optional = true }
-enr = { version = "0.12", optional = true }
 hex = { version = "0.4", optional = true }
 integer-sqrt = { version = "0.1.5", optional = true }
-multiaddr = { version = "0.18", optional = true }
-multihash = { version = "0.18", default-features = false, features = [
-    "std",
-    "multihash-impl",
-    "identity",
-    "sha2",
-], optional = true }
 rand = { version = "0.8", optional = true }
 serde_yaml = { version = "0.9", optional = true }
 ssz_rs = { git = "https://github.com/ralexstokes/ssz-rs", rev = "84ef2b71aa004f6767420badb42c902ad56b8b72", optional = true }
@@ -71,13 +62,9 @@ host = [
 # dependencies required by ethereum_consensus
 ethereum-consensus = [
     "dep:blst",
-    "dep:bs58",
     "dep:c-kzg",
-    "dep:enr",
     "dep:hex",
     "dep:integer-sqrt",
-    "dep:multiaddr",
-    "dep:multihash",
     "dep:rand",
     "dep:serde_json",
     "dep:serde_yaml",

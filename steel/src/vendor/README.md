@@ -9,7 +9,8 @@ This directory houses source code from external crates that have not been publis
 - Only the `ethereum-consensus/src` folder was copied (renamed to `ethereum_consensus`).
 - `ethereum_consensus/lib.rs` was renamed to `ethereum_consensus/mod.rs`.
 - A module description was added to `ethereum_consensus/mod.rs`.
-- The `ethereum_consensus/bin` folder was removed
+- The `ethereum_consensus/bin` folder was removed.
+- The `networking` module was removed.
 - All instances of "`crate::`" were replaced with "`crate::vendor::ethereum_consensus::`".
 - All instances of `#[cfg(feature = "serde")]` were removed to enable all the code behind this feature unconditionally.
 - All other `#[cfg(feature = "...")]` attributes and their associated code blocks were removed.
