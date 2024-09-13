@@ -6,7 +6,8 @@ This directory houses source code from external crates that have not been publis
 
 ### [github.com/ralexstokes/ethereum-consensus@cf3c404043230559660810bc0c9d6d5a8498d819](https://github.com/ralexstokes/ethereum-consensus/tree/cf3c404043230559660810bc0c9d6d5a8498d819)
 
-- Only the `ethereum-consensus/src` folder was copied (renamed to `ethereum_consensus`).
+- The `ethereum-consensus/src` folder was copied (renamed to `ethereum_consensus`).
+- The license files (`LICENSE_MIT` and `LICENSE-APACHE`) were also copied into the `ethereum_consensus` folder.
 - `ethereum_consensus/lib.rs` was renamed to `ethereum_consensus/mod.rs`.
 - A module description was added to `ethereum_consensus/mod.rs`.
 - The `ethereum_consensus/bin` folder was removed.
