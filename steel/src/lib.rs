@@ -38,7 +38,7 @@ pub use contract::{CallBuilder, Contract};
 pub use mpt::MerkleTrie;
 pub use state::StateAccount;
 #[cfg(feature = "ethereum-consensus")]
-pub use vendor::ethereum_consensus;
+use vendor::ethereum_consensus;
 
 /// The serializable input to derive and validate an [EvmEnv] from.
 #[non_exhaustive]
