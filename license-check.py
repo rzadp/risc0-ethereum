@@ -34,7 +34,7 @@ SKIP_DIRS = [
     str(Path.cwd()) + "/contracts/src/test/utils/Strings2.sol",
     str(Path.cwd()) + "/examples/erc20-counter/contracts/ERC20.sol",
     # ignore vendored dependencies
-    str(Path.cwd()) + "/steel/src/contracts/vendor",
+    str(Path.cwd()) + "/steel/src/vendor",
 ]
 
 def check_header(expected_year, lines_actual):
